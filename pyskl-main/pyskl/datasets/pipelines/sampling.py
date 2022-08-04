@@ -580,22 +580,23 @@ class AdaptiveSampleFrames:
         return repr_str
 
     def _sample_merge(self, x, clip_len, x_scores):    # full_segment, n_segment -> num_frames = 60, clip_len = 48
-        n_people, t, n_kp, xy = x.shape  # x.shape = (1, 48, 17, 2)
+        x_tmp = x.copy()
+        x_scores_tmp = x_scores.copy()
 
-        # 错误代码，没有考虑多个人的情况
-        x = x.reshape(t,n_kp,xy*n_people) # x.shape = (48, 17, 2)
-        x_scores = x_scores.reshape(t, n_kp)
-        # 注意：此代码没有考虑第0点的位移 88.25/91.32
-        x = x-x[:,0,:].reshape(t,1,xy*n_people)     # 坐标根据第0点进行调整，注意：此代码没有考虑第0点的位移
+        n_people, t, n_kp, xy = x_tmp.shape  # x.shape = (1, 48, 17, 2)
+
+        # # 错误代码，没有考虑多个人的情况
+        # x_1 = x_tmp.reshape(t,n_kp,xy*n_people) # x.shape = (48, 17, 2)
+        # x_scores_1 = x_scores_tmp.reshape(t, n_kp)
+        # # 注意：此代码没有考虑第0点的位移 88.25/91.32
+        # x_1 = x_1-x_1[:,0:1,:]     # 坐标根据第0点进行调整，注意：此代码没有考虑第0点的位移
 
         # 改进代码，考虑了多人情况，为什么准确率反而下降了
-        # x = x.transpose(1, 0, 2, 3).reshape(t, n_kp*n_people, xy)
-        #
-        # x_scores = x_scores.transpose(1, 0, 2).reshape(t, n_kp*n_people)
-        #
-        # # 注意：此代码没有考虑第0点的位移 88.25/91.32
-        # for i in range(n_people):
-        #     x[:, i*n_kp:(i+1)*n_kp, :] = x[:, i*n_kp:(i+1)*n_kp, :]-x[:, i*n_kp, :].reshape(t, 1, xy)     # 坐标根据第0点进行调整，注意：此代码没有考虑第0点的位移
+        x = x_tmp.transpose(1, 0, 2, 3).reshape(t, n_kp*n_people, xy)
+        x_scores = x_scores_tmp.transpose(1, 0, 2).reshape(t, n_kp*n_people)
+        # 注意：此代码没有考虑第0点的位移 88.25/91.32
+        for i in range(n_people):
+            x[:, i*n_kp:(i+1)*n_kp, :] = x[:, i*n_kp:(i+1)*n_kp, :]-x[:, i*n_kp:i*n_kp+1, :]    # 坐标根据第0点进行调整，注意：此代码没有考虑第0点的位移
 
         # 考虑了第0点的位移
         # x[:, 1:, :] = x[:, 1:, :] - x[:, 0, :].reshape(t, 1, xy * n_people)  # 坐标根据第0点进行调整
@@ -645,7 +646,7 @@ class AdaptiveSampleFrames:
         distance = distance*x_scores                 # 距离乘以置信度
         distance = distance.sum(axis=1)              # distance.shape = (48,)    得到2帧之间的差异值
 
-        # 不采用累计分布的原始代码
+        # 不采用累计分布的原始代码,按斜率来
         # inds = distance[1:].argsort()+1
         # inds = np.append(inds[-clip_len+1:],np.array([0]))  # inds.shape = (48,)
         # inds.sort()
