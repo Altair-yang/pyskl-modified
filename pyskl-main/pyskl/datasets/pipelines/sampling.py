@@ -508,6 +508,7 @@ class AdaptiveSampleFrames:
             if num_frames < clip_len:
                 start_ind = i if num_frames < self.num_clips else i * num_frames // self.num_clips
                 inds = np.arange(start_ind, start_ind + clip_len)
+                list_all = []
             elif clip_len <= num_frames < clip_len * 2:
                 basic = np.arange(clip_len)
                 inds = np.random.choice(clip_len + 1, num_frames - clip_len, replace=False)
@@ -515,60 +516,87 @@ class AdaptiveSampleFrames:
                 offset[inds] = 1
                 offset = np.cumsum(offset)
                 inds = basic + offset[:-1]
+                list_all = []
             else:
                 # bids = np.array([i * num_frames // clip_len for i in range(clip_len + 1)])
                 # bsize = np.diff(bids)
                 # bst = bids[:clip_len]
                 # offset = np.random.randint(bsize)
                 # inds = bst + offset
-                inds = self._sample_merge(x, clip_len, x_scores)
+                inds, list_all = self._sample_merge(x, clip_len, x_scores)
 
             all_inds.append(inds + off)
             num_frames = old_num_frames
 
-        return np.concatenate(all_inds)
+        return np.concatenate(all_inds), list_all
 
     def __call__(self, results):
         num_frames = results['total_frames']
 
         if self.test_mode:
-            inds = self._get_test_clips(num_frames, self.clip_len, results['keypoint'], results['keypoint_score'])
+            inds, list_all = self._get_test_clips(num_frames, self.clip_len, results['keypoint'], results['keypoint_score'])
         else:
             inds = self._get_train_clips(num_frames, self.clip_len, results['keypoint'], results['keypoint_score'])
 
-        inds = np.mod(inds, num_frames)
-        start_index = results['start_index']
-        inds = inds + start_index
+        if num_frames >= self.clip_len * 2:
+            # 帧融合
+            inds = np.arange(self.clip_len)
 
-        # 22.07.27 add
-        if self.order:
-            for i in range(self.num_clips):
-                inds[i:i+self.clip_len].sort()
+            kp = results['keypoint'].copy()
+            kp_score = results['keypoint_score'].copy()
+            n_people, t, n_kp, xy = kp.shape
+            kp_tmp = np.zeros((n_people, self.clip_len, n_kp, xy ))
+            kp_score_tmp = np.zeros((n_people, self.clip_len, n_kp))
+            t = 0
+            for list in list_all:
+                kp_tmp[:, t, :, :] = ((kp[:, list[0]:list[-1]+1, :, :]*kp_score[:, list[0]:list[-1] + 1, :].reshape(n_people, len(list), n_kp, 1))).sum(axis=1)
+                kp_tmp[:, t, :, :] = kp_tmp[:, t, :, :] / kp_score[:, list[0]:list[-1] + 1, :].sum(axis=1).reshape(n_people, n_kp, 1)
+                kp_score_tmp[:, t, :] = kp_score[:, list[0]:list[-1] + 1, :].sum(axis=1)/len(list)
+                t += 1
 
-        if 'keypoint' in results:
-            kp = results['keypoint']
-            assert num_frames == kp.shape[1]
-            num_person = kp.shape[0]
-            num_persons = [num_person] * num_frames
-            for i in range(num_frames):
-                j = num_person - 1
-                while j >= 0 and np.all(np.abs(kp[j, i]) < 1e-5):
-                    j -= 1
-                num_persons[i] = j + 1
-            transitional = [False] * num_frames
-            for i in range(1, num_frames - 1):
-                if num_persons[i] != num_persons[i - 1]:
-                    transitional[i] = transitional[i - 1] = True
-                if num_persons[i] != num_persons[i + 1]:
-                    transitional[i] = transitional[i + 1] = True
-            inds_int = inds.astype(np.int)
-            coeff = np.array([transitional[i] for i in inds_int])
-            inds = (coeff * inds_int + (1 - coeff) * inds).astype(np.float32)
+            results['keypoint'] = kp_tmp
+            results['keypoint_score'] = kp_score_tmp
+            results['frame_inds'] = inds
+            results['clip_len'] = self.clip_len
+            results['frame_interval'] = None
+            results['num_clips'] = self.num_clips
 
-        results['frame_inds'] = inds if self.float_ok else inds.astype(np.int)
-        results['clip_len'] = self.clip_len
-        results['frame_interval'] = None
-        results['num_clips'] = self.num_clips
+        else:
+            # 源代码
+            inds = np.mod(inds, num_frames)
+            start_index = results['start_index']
+            inds = inds + start_index
+
+            # 22.07.27 add
+            if self.order:
+                for i in range(self.num_clips):
+                    inds[i:i+self.clip_len].sort()
+
+            if 'keypoint' in results:
+                kp = results['keypoint']
+                assert num_frames == kp.shape[1]
+                num_person = kp.shape[0]
+                num_persons = [num_person] * num_frames
+                for i in range(num_frames):
+                    j = num_person - 1
+                    while j >= 0 and np.all(np.abs(kp[j, i]) < 1e-5):
+                        j -= 1
+                    num_persons[i] = j + 1
+                transitional = [False] * num_frames
+                for i in range(1, num_frames - 1):
+                    if num_persons[i] != num_persons[i - 1]:
+                        transitional[i] = transitional[i - 1] = True
+                    if num_persons[i] != num_persons[i + 1]:
+                        transitional[i] = transitional[i + 1] = True
+                inds_int = inds.astype(np.int)
+                coeff = np.array([transitional[i] for i in inds_int])
+                inds = (coeff * inds_int + (1 - coeff) * inds).astype(np.float32)
+
+            results['frame_inds'] = inds if self.float_ok else inds.astype(np.int)
+            results['clip_len'] = self.clip_len
+            results['frame_interval'] = None
+            results['num_clips'] = self.num_clips
+
         return results
 
     def __repr__(self):
@@ -585,25 +613,19 @@ class AdaptiveSampleFrames:
 
         n_people, t, n_kp, xy = x_tmp.shape  # x.shape = (1, 48, 17, 2)
 
-        # # 错误代码，没有考虑多个人的情况
-        # x_1 = x_tmp.reshape(t,n_kp,xy*n_people) # x.shape = (48, 17, 2)
-        # x_scores_1 = x_scores_tmp.reshape(t, n_kp)
-        # # 注意：此代码没有考虑第0点的位移 88.25/91.32
-        # x_1 = x_1-x_1[:,0:1,:]     # 坐标根据第0点进行调整，注意：此代码没有考虑第0点的位移
-
-        # 改进代码，考虑了多人情况，为什么准确率反而下降了
+        # 改进代码，考虑了多人情况
         x = x_tmp.transpose(1, 0, 2, 3).reshape(t, n_kp*n_people, xy)
         x_scores = x_scores_tmp.transpose(1, 0, 2).reshape(t, n_kp*n_people)
-        # 注意：此代码没有考虑第0点的位移 88.25/91.32
+
         for i in range(n_people):
-            x[:, i*n_kp:(i+1)*n_kp, :] = x[:, i*n_kp:(i+1)*n_kp, :]-x[:, i*n_kp:i*n_kp+1, :]    # 坐标根据第0点进行调整，注意：此代码没有考虑第0点的位移
+            # 坐标根据第0点进行调整，注意：此代码没有考虑第0点的位移
+            # x[:, i*n_kp:(i+1)*n_kp, :] = x[:, i*n_kp:(i+1)*n_kp, :]-x[:, i*n_kp:i*n_kp+1, :]
+            # 考虑了第0点的位移
+            x[:, i * n_kp + 1:(i + 1) * n_kp, :] = x[:, i * n_kp + 1:(i + 1) * n_kp, :] - x[:, i * n_kp:i * n_kp + 1, :]
 
-        # 考虑了第0点的位移
-        # x[:, 1:, :] = x[:, 1:, :] - x[:, 0, :].reshape(t, 1, xy * n_people)  # 坐标根据第0点进行调整
+        sampled_inds, list_all = self._slope_selection(x, clip_len, x_scores)  #
 
-        sampled_inds = self._slope_selection(x, clip_len, x_scores)  #
-
-        return sampled_inds
+        return sampled_inds, list_all
 
     def _slope_selection(self, x, clip_len, x_scores):
 
@@ -643,7 +665,10 @@ class AdaptiveSampleFrames:
 
         diff = x - tmp_x                             # diff.shape = (48,17,2)
         distance = np.sqrt((diff ** 2).sum(axis=2))  # distance.shape = (48,17)
-        distance = distance*x_scores                 # 距离乘以置信度
+        distance = distance*x_scores                 # 距离乘以置信度 distance.shape = (48,17)
+        # 第0点的绝对位移 和 其他点的相对位移 ，应当是不同的
+        alpha = 1.1
+        distance[:, 0:1] = distance[:, 0:1]*alpha
         distance = distance.sum(axis=1)              # distance.shape = (48,)    得到2帧之间的差异值
 
         # 不采用累计分布的原始代码,按斜率来
@@ -659,16 +684,28 @@ class AdaptiveSampleFrames:
 
         inds = []
         list_his = []
+        list_all = []
         for i in range(clip_len):
             list = []
             for j in range(x.shape[0]):
                 if dis_index * i <= accu[j] < dis_index * (i + 1)+ 0.01:
                     list.append(j)
+
             if len(list) > 0:
                 list_his = list
                 inds.append(random.choice(list))
+                list_all.append(list)
             else:
-                inds.append(random.choice(list_his))
+                if len(list_his) > 1:
+                    list = [list_his.pop()]
+                    list_all[-1] = list_his
+                    list_his = list
+                    inds.append(random.choice(list))
+                    list_all.append(list_his)
+                else:
+                    inds.append(random.choice(list_his))
+                    list_all.append(list_his)
 
         inds = np.array(inds)
-        return inds
+        # return inds
+        return inds, list_all

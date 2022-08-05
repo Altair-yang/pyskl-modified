@@ -27,7 +27,7 @@ os.environ['RANK'] = '0'
 # environment variable MASTER_ADDR expected, but not set
 os.environ['WORLD_SIZE'] = '1'
 os.environ['MASTER_ADDR'] = 'localhost'
-os.environ['MASTER_PORT'] = '5679'
+os.environ['MASTER_PORT'] = '29500'
 
 
 def parse_args():
@@ -35,7 +35,7 @@ def parse_args():
         description='pyskl test (and eval) a model')
     parser.add_argument('config', help='test config file path')
     parser.add_argument('-C', '--checkpoint', help='checkpoint file',
-                        default='D:\\1_工作学习\\4_code\\Code\\pyskl-main\\pyskl-main\\tools\\work_dirs\\posec3d\\slowonly_r50_gym\\joint\\joint.pth')
+                        default='D:\\1_工作学习\\4_code\\Code\\pyskl-main\\pyskl-main\\tools\\work_dirs\\posec3d\\slowonly_r50_k400\\joint\\joint.pth')
     parser.add_argument(
         '--out',
         default=None,
