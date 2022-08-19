@@ -131,6 +131,7 @@ def main():
 
     datasets = [build_dataset(cfg.data.train)]
 
+
     cfg.workflow = cfg.get('workflow', [('train', 1)])
     assert len(cfg.workflow) == 1
     if cfg.checkpoint_config is not None:

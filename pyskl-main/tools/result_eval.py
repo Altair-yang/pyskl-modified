@@ -2,10 +2,13 @@
 # Date  :
 import argparse
 import os
+import numpy as np
+import tqdm
 import os.path as osp
 import time
 
 import mmcv
+import numpy as np
 import torch
 import torch.distributed as dist
 from mmcv import Config, load
@@ -78,8 +81,19 @@ dataset = build_dataset(cfg.data.test, dict(test_mode=True))
 
 # Load eval_config from cfg
 eval_cfg = cfg.get('evaluation', {})
-result_file = 'D:\\1_工作学习\\4_code\\Code\\pyskl-main\\pyskl-main\\tools\\work_dirs\\posec3d\\slowonly_r50_gym\\joint\\result.pkl'
+result_file = './result.pkl'
 outputs = mmcv.load(result_file)
+
+# class_num = 99
+# err_list = np.zeros(99, dtype=int)
+# pred = np.argmax(outputs, axis=1)
+# for i in tqdm.tqdm(range(len(outputs))):
+#     label = dataset[i]['label']
+#     if label != pred[i] :
+#         err_list[label] += 1
+# print("acc：", err_list.sum()/8521)
+# print(err_list)
+
 
 if eval_cfg:
     eval_res = dataset.evaluate(outputs, **eval_cfg)

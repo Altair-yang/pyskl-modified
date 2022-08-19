@@ -115,6 +115,18 @@ def top_k_accuracy(scores, labels, topk=(1, )):
     for k in topk:
         max_k_preds = np.argsort(scores, axis=1)[:, -k:][:, ::-1]
         match_array = np.logical_or.reduce(max_k_preds == labels, axis=1)
+
+        if k == 1:
+            err_l = np.zeros((99,99),dtype=int)
+            for i in range(len(match_array)):
+                if match_array[i] == False:
+                    err_l[labels[i][0]][max_k_preds[i]] += 1
+            print("error：", err_l.sum())
+            print("error_class：", err_l.sum(axis=1))
+            print("class1：",err_l[1])
+            print("class2：",err_l[2])
+            print("class43：",err_l[43])
+
         topk_acc_score = match_array.sum() / match_array.shape[0]
         res.append(topk_acc_score)
 
